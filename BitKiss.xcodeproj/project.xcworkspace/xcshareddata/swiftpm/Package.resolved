@@ -1,0 +1,15 @@
+{
+  "originHash" : "247ed477c6daed345df4c4f5bf67b0aa7ce2c2cee2632d2a5c6ca866bf1412e7",
+  "pins" : [
+    {
+      "identity" : "ldk-node",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lightningdevkit/ldk-node",
+      "state" : {
+        "revision" : "68ab7f417e595f3997dd598ebe070dd5d1b5facf",
+        "version" : "0.7.0"
+      }
+    }
+  ],
+  "version" : 3
+}

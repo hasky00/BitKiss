@@ -37,21 +37,21 @@ struct ContentView: View {
                     }
 
                     card(title: "Node ID") {
-                        Text(manager.nodeId.isEmpty ? "..." : manager.nodeId)
+                        Text(manager.nodeId.isEmpty ? "..." : ReceiveCard.shorten(manager.nodeId, head: 12, tail: 8))
                             .font(.system(.footnote, design: .monospaced))
-                            .textSelection(.enabled)
                         copyButton("Copy node ID", value: manager.nodeId)
                     }
 
                     card(title: "Receive on-chain (test sats)") {
                         if !manager.address.isEmpty {
-                            Text(manager.address)
-                                .font(.system(.footnote, design: .monospaced))
-                                .textSelection(.enabled)
-                            copyButton("Copy address", value: manager.address)
+                            ReceiveCard(value: manager.address,
+                                        caption: "Bitcoin address on Mutinynet",
+                                        accent: orange)
                         }
-                        Button("New address") { manager.newAddress() }
-                            .buttonStyle(.borderedProminent).tint(pink)
+                        Button(manager.address.isEmpty ? "New address" : "Another address") {
+                            manager.newAddress()
+                        }
+                        .buttonStyle(.borderedProminent).tint(pink)
                     }
 
                     card(title: "Channels") {
@@ -92,10 +92,9 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent).tint(pink)
                         if !manager.invoice.isEmpty {
-                            Text(manager.invoice)
-                                .font(.system(.caption2, design: .monospaced))
-                                .lineLimit(3)
-                            copyButton("Copy invoice", value: manager.invoice)
+                            ReceiveCard(value: manager.invoice,
+                                        caption: "Lightning invoice for \(invoiceSats) sats",
+                                        accent: orange)
                         }
                     }
 

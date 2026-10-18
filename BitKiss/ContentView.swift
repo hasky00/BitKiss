@@ -59,10 +59,10 @@ struct ContentView: View {
                         .disabled(manager.mnemonic.isEmpty)
                     }
 
-                    card(title: "Receive on-chain (test sats)") {
+                    card(title: "Receive on-chain") {
                         if !manager.address.isEmpty {
                             ReceiveCard(value: manager.address,
-                                        caption: "Bitcoin address on Mutinynet",
+                                        caption: "Bitcoin address",
                                         accent: orange)
                         }
                         Button(manager.address.isEmpty ? "New address" : "Another address") {
@@ -116,7 +116,7 @@ struct ContentView: View {
                     }
 
                     card(title: "Send a BitKiss (pay invoice)") {
-                        field("lntb...", text: $payText)
+                        field("lnbc...", text: $payText)
                         HStack {
                             Button("Paste") { payText = UIPasteboard.general.string ?? "" }
                                 .buttonStyle(.bordered).tint(orange)

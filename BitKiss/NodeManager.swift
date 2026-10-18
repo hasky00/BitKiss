@@ -14,7 +14,7 @@ struct ChannelSummary: Identifiable {
 }
 
 /// Runs the Lightning node that lives inside BitKiss.
-/// Test network only for now (Mutinynet = signet with play money).
+/// Mainnet: real sats. Handle with care.
 @Observable
 final class NodeManager {
     var status = "Not started"
@@ -31,8 +31,11 @@ final class NodeManager {
 
     private var node: Node?
 
-    // Mutinynet: a test network with fast blocks and a free faucet.
-    private let esploraURL = "https://mutinynet.com/api"
+    // Blockstream's public Esplora server for mainnet.
+    private let esploraURL = "https://blockstream.info/api"
+    // Rapid Gossip Sync: a compressed snapshot of the Lightning network,
+    // so the phone can find payment routes right away.
+    private let rgsURL = "https://rapidsync.lightningdevkit.org/snapshot"
 
     func start() async {
         guard node == nil else { return }
@@ -42,12 +45,14 @@ final class NodeManager {
         do {
             let dir = try Self.storageDir()
             let url = esploraURL
+            let rgs = rgsURL
             let words = try SeedStore.loadOrCreate()
             mnemonic = words
             let started = try await Task.detached { () throws -> Node in
                 let builder = Builder()
-                builder.setNetwork(network: .signet)
+                builder.setNetwork(network: .bitcoin)
                 builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
+                builder.setGossipSourceRgs(rgsServerUrl: rgs)
                 builder.setStorageDirPath(storageDirPath: dir)
                 builder.setChainSourceEsplora(serverUrl: url, config: nil)
                 let node = try builder.build()
@@ -56,7 +61,7 @@ final class NodeManager {
             }.value
             node = started
             nodeId = started.nodeId()
-            status = "Running on Mutinynet (test sats)"
+            status = "Running on mainnet"
             await refresh()
         } catch {
             status = "Error: \(error)"
@@ -133,7 +138,7 @@ final class NodeManager {
         }
     }
 
-    /// Pays a Lightning invoice (lntb...).
+    /// Pays a Lightning invoice (lnbc...).
     func payInvoice(_ text: String) async {
         guard let node else { return }
         isBusy = true
@@ -155,9 +160,8 @@ final class NodeManager {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)
-        // One folder per network. The old "ldk-node" folder belonged to the
-        // random seed we no longer use, so it is simply left behind.
-        let dir = base.appendingPathComponent("ldk-node/signet", isDirectory: true)
+        // One folder per network, so test data never mixes with real data.
+        let dir = base.appendingPathComponent("ldk-node/bitcoin", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.path
     }

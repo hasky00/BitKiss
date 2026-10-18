@@ -89,7 +89,7 @@ struct QRCodeView: View {
     ZStack {
         Color.black.ignoresSafeArea()
         ReceiveCard(value: "tb1qexampleaddressthatisquitelong0123456789u4ern",
-                    caption: "On-chain address (Mutinynet)",
+                    caption: "On-chain address",
                     accent: .orange)
             .padding()
     }

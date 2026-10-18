@@ -26,6 +26,8 @@ final class NodeManager {
     var invoice = ""
     var message = ""
     var isBusy = false
+    /// The 12 recovery words. Shown once so the user can write them down.
+    var mnemonic = ""
 
     private var node: Node?
 
@@ -40,9 +42,12 @@ final class NodeManager {
         do {
             let dir = try Self.storageDir()
             let url = esploraURL
+            let words = try SeedStore.loadOrCreate()
+            mnemonic = words
             let started = try await Task.detached { () throws -> Node in
                 let builder = Builder()
                 builder.setNetwork(network: .signet)
+                builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
                 builder.setStorageDirPath(storageDirPath: dir)
                 builder.setChainSourceEsplora(serverUrl: url, config: nil)
                 let node = try builder.build()
@@ -150,7 +155,9 @@ final class NodeManager {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)
-        let dir = base.appendingPathComponent("ldk-node", isDirectory: true)
+        // One folder per network. The old "ldk-node" folder belonged to the
+        // random seed we no longer use, so it is simply left behind.
+        let dir = base.appendingPathComponent("ldk-node/signet", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.path
     }

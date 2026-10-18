@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var giftSats = "10000"
     @State private var invoiceSats = "1000"
     @State private var payText = ""
+    @State private var showWords = false
 
     private let plum = Color(red: 0x1E/255, green: 0x12/255, blue: 0x30/255)
     private let pink = Color(red: 0xFF/255, green: 0x5C/255, blue: 0x8A/255)
@@ -40,6 +41,22 @@ struct ContentView: View {
                         Text(manager.nodeId.isEmpty ? "..." : ReceiveCard.shorten(manager.nodeId, head: 12, tail: 8))
                             .font(.system(.footnote, design: .monospaced))
                         copyButton("Copy node ID", value: manager.nodeId)
+                    }
+
+                    card(title: "Recovery words") {
+                        if showWords {
+                            Text(manager.mnemonic)
+                                .font(.system(.footnote, design: .monospaced))
+                                .textSelection(.enabled)
+                            Text("Write these 12 words down and keep them private. They are the only way to get your sats back if you lose this phone.")
+                                .font(.footnote)
+                                .foregroundStyle(orange)
+                        }
+                        Button(showWords ? "Hide words" : "Show words") {
+                            showWords.toggle()
+                        }
+                        .buttonStyle(.bordered).tint(orange)
+                        .disabled(manager.mnemonic.isEmpty)
                     }
 
                     card(title: "Receive on-chain (test sats)") {

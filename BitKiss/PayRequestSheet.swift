@@ -41,6 +41,12 @@ struct PayRequestSheet: View {
                     .font(.footnote)
                     .foregroundStyle(orange)
 
+                if paying {
+                    Text(manager.message)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+
                 if !error.isEmpty {
                     Text(error)
                         .font(.footnote)

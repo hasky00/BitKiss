@@ -25,6 +25,12 @@ struct PaymentRequest: Identifiable, Equatable {
     let memo: String
 }
 
+/// What finally happened to a payment, as reported by the node's events.
+enum PaymentOutcome: Equatable {
+    case succeeded
+    case failed(String)
+}
+
 /// Runs the Lightning node that lives inside BitKiss.
 /// Mainnet: real sats. Handle with care.
 @Observable
@@ -42,6 +48,10 @@ final class NodeManager {
     var mnemonic = ""
 
     private var node: Node?
+    /// Listens for node events (payment results, channel changes) while running.
+    private var eventTask: Task<Void, Never>?
+    /// Final results of payments we sent, by payment id, filled in by the event loop.
+    private var outcomes: [PaymentId: PaymentOutcome] = [:]
 
     // Blockstream's public Esplora server for mainnet.
     private let esploraURL = "https://blockstream.info/api"
@@ -74,6 +84,7 @@ final class NodeManager {
             node = started
             nodeId = started.nodeId()
             status = "Running on mainnet"
+            listenForEvents(on: started)
             await refresh()
         } catch {
             status = "Error: \(error)"
@@ -150,23 +161,96 @@ final class NodeManager {
         }
     }
 
-    /// Pays a Lightning invoice (lnbc...). Returns true when the payment was sent.
+    /// Pays a Lightning invoice (lnbc...) and waits for the node to report the
+    /// real result. Returns true only when the payment actually succeeded.
     @discardableResult
     func payInvoice(_ text: String) async -> Bool {
         guard let node else { return false }
         isBusy = true
         defer { isBusy = false }
+
+        let paymentId: PaymentId
         do {
             let inv = try Bolt11Invoice.fromStr(
                 invoiceStr: text.trimmingCharacters(in: .whitespacesAndNewlines))
-            _ = try await Task.detached {
+            paymentId = try await Task.detached {
                 try node.bolt11Payment().send(invoice: inv, routeParameters: nil)
             }.value
-            message = "Payment sent. Tap Refresh in a moment."
-            return true
         } catch {
             message = "Could not pay: \(error)"
             return false
+        }
+
+        message = "Finding a route..."
+        switch await waitForOutcome(of: paymentId) {
+        case .succeeded:
+            message = "Payment sent."
+            return true
+        case .failed(let reason):
+            message = "Payment failed: \(reason)"
+            return false
+        case nil:
+            message = "Still trying to pay. Check your balance in a moment."
+            return false
+        }
+    }
+
+    /// Waits up to `timeout` seconds for the event loop to record the payment's
+    /// outcome. Nil means the node had not decided yet.
+    private func waitForOutcome(of paymentId: PaymentId, timeout: TimeInterval = 90) async -> PaymentOutcome? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let outcome = outcomes[paymentId] { return outcome }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return nil
+    }
+
+    /// Pulls events off the node for as long as it runs. Payment results are
+    /// stored for ``payInvoice(_:)``; channel changes trigger a balance refresh.
+    private func listenForEvents(on node: Node) {
+        eventTask?.cancel()
+        eventTask = Task.detached { [weak self] in
+            while !Task.isCancelled {
+                let event = await node.nextEventAsync()
+                await self?.handle(event)
+                try? node.eventHandled()
+            }
+        }
+    }
+
+    @MainActor
+    private func handle(_ event: Event) async {
+        switch event {
+        case .paymentSuccessful(let paymentId, _, _, _):
+            if let paymentId { outcomes[paymentId] = .succeeded }
+            await refresh()
+        case .paymentFailed(let paymentId, _, let reason):
+            if let paymentId { outcomes[paymentId] = .failed(Self.describe(reason)) }
+        case .paymentReceived:
+            message = "Payment received."
+            await refresh()
+        case .channelReady:
+            message = "Channel is ready. You can send and receive on Lightning."
+            await refresh()
+        case .channelClosed:
+            message = "A channel was closed. Funds return on-chain after a while."
+            await refresh()
+        default:
+            break
+        }
+    }
+
+    /// Plain words for LDK's failure reasons.
+    private static func describe(_ reason: PaymentFailureReason?) -> String {
+        guard let reason else { return "unknown reason" }
+        switch reason {
+        case .routeNotFound: return "no route to the receiver"
+        case .recipientRejected: return "the receiver rejected it"
+        case .paymentExpired: return "the invoice expired"
+        case .retriesExhausted: return "every route attempt failed"
+        case .userAbandoned: return "cancelled"
+        default: return "\(reason)"
         }
     }
 

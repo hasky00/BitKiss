@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var manager = NodeManager()
+    /// Shared with MyApp, which also uses it to pay invoices other apps send in.
+    let manager: NodeManager
     @State private var copied = ""
     @State private var connection = ""
     @State private var channelSats = "50000"
@@ -170,5 +171,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(manager: NodeManager())
 }

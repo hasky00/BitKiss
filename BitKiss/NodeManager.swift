@@ -13,6 +13,18 @@ struct ChannelSummary: Identifiable {
     let confirmations: UInt32
 }
 
+/// A Lightning invoice someone asked BitKiss to pay, decoded for the screen.
+///
+/// Another app (Damus, say) hands this over through the `bitkiss:` URL scheme;
+/// the user then sees the amount and memo and decides whether to pay.
+struct PaymentRequest: Identifiable, Equatable {
+    var id: String { invoice }
+    let invoice: String
+    /// Nil when the invoice lets the payer choose the amount.
+    let amountSats: UInt64?
+    let memo: String
+}
+
 /// Runs the Lightning node that lives inside BitKiss.
 /// Mainnet: real sats. Handle with care.
 @Observable
@@ -138,9 +150,10 @@ final class NodeManager {
         }
     }
 
-    /// Pays a Lightning invoice (lnbc...).
-    func payInvoice(_ text: String) async {
-        guard let node else { return }
+    /// Pays a Lightning invoice (lnbc...). Returns true when the payment was sent.
+    @discardableResult
+    func payInvoice(_ text: String) async -> Bool {
+        guard let node else { return false }
         isBusy = true
         defer { isBusy = false }
         do {
@@ -150,9 +163,25 @@ final class NodeManager {
                 try node.bolt11Payment().send(invoice: inv, routeParameters: nil)
             }.value
             message = "Payment sent. Tap Refresh in a moment."
+            return true
         } catch {
             message = "Could not pay: \(error)"
+            return false
         }
+    }
+
+    /// Reads an invoice so the screen can show what it asks for before paying.
+    /// Returns nil when the text is not a valid invoice.
+    static func describe(invoice text: String) -> PaymentRequest? {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let inv = try? Bolt11Invoice.fromStr(invoiceStr: cleaned) else { return nil }
+        let sats = inv.amountMilliSatoshis().map { $0 / 1000 }
+        let memo: String
+        switch inv.invoiceDescription() {
+        case .direct(let text): memo = text
+        case .hash: memo = ""
+        }
+        return PaymentRequest(invoice: cleaned, amountSats: sats, memo: memo)
     }
 
     /// Where the node keeps its data (and its seed) on the phone.

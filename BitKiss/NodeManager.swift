@@ -11,6 +11,9 @@ struct ChannelSummary: Identifiable {
     let canReceiveSats: UInt64
     let isReady: Bool
     let confirmations: UInt32
+    /// Transaction id of the channel's funding, once it exists. Look it up on
+    /// mempool.space to watch confirmations.
+    let fundingTxid: String?
 }
 
 /// A Lightning invoice someone asked BitKiss to pay, decoded for the screen.
@@ -107,7 +110,8 @@ final class NodeManager {
                 canSendSats: $0.outboundCapacityMsat / 1000,
                 canReceiveSats: $0.inboundCapacityMsat / 1000,
                 isReady: $0.isChannelReady,
-                confirmations: $0.confirmations ?? 0)
+                confirmations: $0.confirmations ?? 0,
+                fundingTxid: $0.fundingTxo?.txid)
         }
     }
 
@@ -266,6 +270,22 @@ final class NodeManager {
         case .hash: memo = ""
         }
         return PaymentRequest(invoice: cleaned, amountSats: sats, memo: memo)
+    }
+
+    /// The last lines of the node's own log, for seeing what it is doing
+    /// when something stalls. Empty when no log has been written yet.
+    func recentLog(lines: Int = 60) -> String {
+        guard let dir = try? Self.storageDir() else { return "" }
+        let candidates = [
+            "\(dir)/logs/ldk_node_latest.log",
+            "\(dir)/ldk_node.log",
+        ]
+        for path in candidates {
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            let all = text.split(separator: "\n", omittingEmptySubsequences: true)
+            return all.suffix(lines).joined(separator: "\n")
+        }
+        return ""
     }
 
     /// Where the node keeps its data (and its seed) on the phone.

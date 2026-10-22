@@ -10,6 +10,8 @@ struct ContentView: View {
     @State private var invoiceSats = "1000"
     @State private var payText = ""
     @State private var showWords = false
+    @State private var showLog = false
+    @State private var nodeLog = ""
 
     private let plum = Color(red: 0x1E/255, green: 0x12/255, blue: 0x30/255)
     private let pink = Color(red: 0xFF/255, green: 0x5C/255, blue: 0x8A/255)
@@ -84,6 +86,16 @@ struct ContentView: View {
                                      : "Waiting for blocks (\(ch.confirmations) so far)")
                                     .font(.footnote)
                                     .foregroundStyle(ch.isReady ? .green : orange)
+                                if let txid = ch.fundingTxid {
+                                    Text("Funding tx: \(ReceiveCard.shorten(txid, head: 10, tail: 8))")
+                                        .font(.system(.footnote, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    copyButton("Copy funding tx id", value: txid)
+                                } else {
+                                    Text("No funding transaction yet (still negotiating with the peer)")
+                                        .font(.footnote)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
                             }
                         }
                     }
@@ -123,6 +135,27 @@ struct ContentView: View {
                                 .buttonStyle(.bordered).tint(orange)
                             Button("Pay") { Task { await manager.payInvoice(payText) } }
                                 .buttonStyle(.borderedProminent).tint(pink)
+                        }
+                    }
+
+                    card(title: "Node log") {
+                        if showLog {
+                            ScrollView(.horizontal) {
+                                Text(nodeLog.isEmpty ? "No log yet." : nodeLog)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxHeight: 260)
+                        }
+                        HStack {
+                            Button(showLog ? "Hide log" : "Show log") {
+                                nodeLog = manager.recentLog()
+                                showLog.toggle()
+                            }
+                            .buttonStyle(.bordered).tint(orange)
+                            if showLog {
+                                copyButton("Copy log", value: nodeLog)
+                            }
                         }
                     }
 

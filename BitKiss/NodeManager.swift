@@ -49,6 +49,8 @@ final class NodeManager {
     var isBusy = false
     /// The 12 recovery words. Shown once so the user can write them down.
     var mnemonic = ""
+    /// Why the last channel closed, as reported by LDK (kept so it survives refreshes).
+    var lastCloseReason = ""
 
     private var node: Node?
     /// Listens for node events (payment results, channel changes) while running.
@@ -57,48 +59,78 @@ final class NodeManager {
     private var outcomes: [PaymentId: PaymentOutcome] = [:]
 
     // Blockstream's public Esplora server for mainnet.
+    // Blockstream's public Esplora. (mempool.space looked faster but its API
+    // differs just enough that the on-chain wallet sync fails against it.)
     private let esploraURL = "https://blockstream.info/api"
     // Rapid Gossip Sync: a compressed snapshot of the Lightning network,
     // so the phone can find payment routes right away.
     private let rgsURL = "https://rapidsync.lightningdevkit.org/snapshot"
 
-    func start() async {
+    /// True while the last start attempt failed, so the UI can offer a retry.
+    var startFailed = false
+
+    /// Starts the node, retrying a few times: the chain server sometimes
+    /// answers slowly, and one slow answer should not leave the wallet empty.
+    func start(attempts: Int = 3) async {
         guard node == nil else { return }
-        status = "Starting node..."
+        startFailed = false
         isBusy = true
         defer { isBusy = false }
-        do {
-            let dir = try Self.storageDir()
-            let url = esploraURL
-            let rgs = rgsURL
-            let words = try SeedStore.loadOrCreate()
-            mnemonic = words
-            let started = try await Task.detached { () throws -> Node in
-                let builder = Builder()
-                builder.setNetwork(network: .bitcoin)
-                builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
-                builder.setGossipSourceRgs(rgsServerUrl: rgs)
-                builder.setStorageDirPath(storageDirPath: dir)
-                builder.setChainSourceEsplora(serverUrl: url, config: nil)
-                let node = try builder.build()
-                try node.start()
-                return node
-            }.value
-            node = started
-            nodeId = started.nodeId()
-            status = "Running on mainnet"
-            listenForEvents(on: started)
-            await refresh()
-        } catch {
-            status = "Error: \(error)"
+        var lastError: Error?
+        for attempt in 1...max(1, attempts) {
+            status = attempt == 1 ? "Starting node..." : "Starting node (try \(attempt) of \(attempts))..."
+            do {
+                let dir = try Self.storageDir()
+                let url = esploraURL
+                let rgs = rgsURL
+                let words = try SeedStore.loadOrCreate()
+                mnemonic = words
+                let started = try await Task.detached { () throws -> Node in
+                    let builder = Builder()
+                    builder.setNetwork(network: .bitcoin)
+                    builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
+                    builder.setGossipSourceRgs(rgsServerUrl: rgs)
+                    builder.setStorageDirPath(storageDirPath: dir)
+                    builder.setChainSourceEsplora(serverUrl: url, config: nil)
+                    let node = try builder.build()
+                    try node.start()
+                    return node
+                }.value
+                node = started
+                nodeId = started.nodeId()
+                status = "Running on mainnet"
+                listenForEvents(on: started)
+                await refresh()
+                return
+            } catch {
+                lastError = error
+                if attempt < attempts {
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
         }
+        startFailed = true
+        status = "Could not start: \(Self.plain(lastError))"
+    }
+
+    /// Short, human wording for the errors we actually see in the wild.
+    private static func plain(_ error: Error?) -> String {
+        let text = "\(error.map { "\($0)" } ?? "unknown error")"
+        if text.contains("FeerateEstimation") { return "the chain server was too slow. Check your connection and retry." }
+        if text.contains("WalletOperation") || text.contains("Esplora") { return "could not reach the chain server. Retry in a moment." }
+        return text
     }
 
     func refresh() async {
         guard let node else { return }
         isBusy = true
         defer { isBusy = false }
-        _ = try? await Task.detached { try node.syncWallets() }.value
+        do {
+            try await Task.detached { try node.syncWallets() }.value
+        } catch {
+            // Say so instead of silently showing a stale balance.
+            message = "Sync problem: \(error)"
+        }
         let balances = node.listBalances()
         onchainSats = balances.totalOnchainBalanceSats
         lightningSats = balances.totalLightningBalanceSats
@@ -134,6 +166,7 @@ final class NodeManager {
             message = "That doesn't look like pubkey@host:port"
             return
         }
+        message = "Contacting peer and opening a \(amountSats) sat channel..."
         isBusy = true
         defer { isBusy = false }
         do {
@@ -237,8 +270,10 @@ final class NodeManager {
         case .channelReady:
             message = "Channel is ready. You can send and receive on Lightning."
             await refresh()
-        case .channelClosed:
-            message = "A channel was closed. Funds return on-chain after a while."
+        case .channelClosed(_, _, _, let reason):
+            let why = reason.map { "\($0)" } ?? "no reason given"
+            message = "Channel closed: \(why)"
+            lastCloseReason = why
             await refresh()
         default:
             break
@@ -283,7 +318,11 @@ final class NodeManager {
         for path in candidates {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             let all = text.split(separator: "\n", omittingEmptySubsequences: true)
-            return all.suffix(lines).joined(separator: "\n")
+            // Drop the chatty sync lines so channel and peer messages stay visible.
+            // Only the 30-second Lightning tx-sync heartbeat is noise; keep on-chain sync lines.
+            let noise = ["Finished transaction sync", "Processing RGS update"]
+            let interesting = all.filter { line in !noise.contains { line.contains($0) } }
+            return interesting.suffix(lines).joined(separator: "\n")
         }
         return ""
     }

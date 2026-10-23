@@ -29,6 +29,12 @@ struct ContentView: View {
                     Label(manager.status, systemImage: "bolt.fill")
                         .foregroundStyle(orange)
 
+                    if manager.startFailed {
+                        Button("Retry") { Task { await manager.start() } }
+                            .buttonStyle(.borderedProminent).tint(pink)
+                            .disabled(manager.isBusy)
+                    }
+
                     if !manager.message.isEmpty {
                         Text(manager.message)
                             .font(.footnote)
@@ -101,6 +107,12 @@ struct ContentView: View {
                     }
 
                     card(title: "Open a channel") {
+                        if !manager.lastCloseReason.isEmpty {
+                            Text("Last channel closed: \(manager.lastCloseReason)")
+                                .font(.footnote)
+                                .foregroundStyle(orange)
+                                .textSelection(.enabled)
+                        }
                         field("pubkey@host:port", text: $connection)
                         field("Channel size (sats)", text: $channelSats, numbers: true)
                         field("Gift to other side (sats)", text: $giftSats, numbers: true)
@@ -113,6 +125,7 @@ struct ContentView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent).tint(pink)
+                        .disabled(manager.isBusy)
                     }
 
                     card(title: "Receive a BitKiss (Lightning)") {
@@ -164,7 +177,6 @@ struct ContentView: View {
                         .tint(orange)
                 }
                 .padding(24)
-                .disabled(manager.isBusy)
             }
         }
         .foregroundStyle(.white)

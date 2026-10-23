@@ -86,8 +86,15 @@ final class NodeManager {
                 let words = try SeedStore.loadOrCreate()
                 mnemonic = words
                 let started = try await Task.detached { () throws -> Node in
-                    let builder = Builder()
-                    builder.setNetwork(network: .bitcoin)
+                    // Anchor channels are the modern channel type; big peers such as
+                    // ACINQ refuse anything else. LDK keeps a small on-chain reserve
+                    // per anchor channel so it can always bump fees on a force close.
+                    var config = defaultConfig()
+                    config.network = .bitcoin
+                    config.anchorChannelsConfig = AnchorChannelsConfig(
+                        trustedPeersNoReserve: [],
+                        perChannelReserveSats: 25_000)
+                    let builder = Builder.fromConfig(config: config)
                     builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
                     builder.setGossipSourceRgs(rgsServerUrl: rgs)
                     builder.setStorageDirPath(storageDirPath: dir)
@@ -309,7 +316,7 @@ final class NodeManager {
 
     /// The last lines of the node's own log, for seeing what it is doing
     /// when something stalls. Empty when no log has been written yet.
-    func recentLog(lines: Int = 60) -> String {
+    func recentLog(lines: Int = 200) -> String {
         guard let dir = try? Self.storageDir() else { return "" }
         let candidates = [
             "\(dir)/logs/ldk_node_latest.log",

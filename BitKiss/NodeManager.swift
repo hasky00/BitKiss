@@ -28,6 +28,17 @@ struct PaymentRequest: Identifiable, Equatable {
     let memo: String
 }
 
+/// One line of payment history, in simple words for the screen.
+struct ActivityItem: Identifiable {
+    let id: String
+    let incoming: Bool
+    let sats: UInt64
+    let onchain: Bool
+    let pending: Bool
+    let failed: Bool
+    let date: Date
+}
+
 /// What finally happened to a payment, as reported by the node's events.
 enum PaymentOutcome: Equatable {
     case succeeded
@@ -46,6 +57,10 @@ final class NodeManager {
     var channels: [ChannelSummary] = []
     var invoice = ""
     var message = ""
+    /// Recent payments, newest first.
+    var activity: [ActivityItem] = []
+    /// Euro price of one bitcoin, for the small line under the balance.
+    var eurPerBtc: Double? = nil
     var isBusy = false
     /// The 12 recovery words. Shown once so the user can write them down.
     var mnemonic = ""
@@ -98,7 +113,14 @@ final class NodeManager {
                     builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
                     builder.setGossipSourceRgs(rgsServerUrl: rgs)
                     builder.setStorageDirPath(storageDirPath: dir)
-                    builder.setChainSourceEsplora(serverUrl: url, config: nil)
+                    // Sync gently: Blockstream's public server allows ~700 requests
+                    // an hour per IP, and a phone wallet does not need to ask
+                    // every 30 seconds. Pull-to-refresh still syncs on demand.
+                    let sync = EsploraSyncConfig(backgroundSyncConfig: BackgroundSyncConfig(
+                        onchainWalletSyncIntervalSecs: 600,
+                        lightningWalletSyncIntervalSecs: 180,
+                        feeRateCacheUpdateIntervalSecs: 1800))
+                    builder.setChainSourceEsplora(serverUrl: url, config: sync)
                     let node = try builder.build()
                     try node.start()
                     return node
@@ -141,6 +163,23 @@ final class NodeManager {
         let balances = node.listBalances()
         onchainSats = balances.totalOnchainBalanceSats
         lightningSats = balances.totalLightningBalanceSats
+        activity = node.listPayments()
+            .filter { $0.amountMsat != nil }
+            .sorted { $0.latestUpdateTimestamp > $1.latestUpdateTimestamp }
+            .prefix(50)
+            .map { p in
+                let onchain: Bool
+                if case .onchain = p.kind { onchain = true } else { onchain = false }
+                return ActivityItem(
+                    id: p.id,
+                    incoming: p.direction == .inbound,
+                    sats: (p.amountMsat ?? 0) / 1000,
+                    onchain: onchain,
+                    pending: p.status == .pending,
+                    failed: p.status == .failed,
+                    date: Date(timeIntervalSince1970: TimeInterval(p.latestUpdateTimestamp)))
+            }
+        await updatePrice()
         channels = node.listChannels().map {
             ChannelSummary(
                 id: $0.userChannelId,
@@ -152,6 +191,26 @@ final class NodeManager {
                 confirmations: $0.confirmations ?? 0,
                 fundingTxid: $0.fundingTxo?.txid)
         }
+    }
+
+    /// Fetches the euro price once per refresh. Failure just leaves the old value.
+    private func updatePrice() async {
+        guard let url = URL(string: "https://mempool.space/api/v1/prices") else { return }
+        if let (data, _) = try? await URLSession.shared.data(from: url),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let eur = json["EUR"] as? Double {
+            eurPerBtc = eur
+        }
+    }
+
+    /// Total sats across Lightning and on-chain.
+    var totalSats: UInt64 { lightningSats + onchainSats }
+
+    /// "€12.34" for a number of sats, or nil before we know the price.
+    func euros(for sats: UInt64) -> String? {
+        guard let eurPerBtc else { return nil }
+        let value = Double(sats) / 100_000_000 * eurPerBtc
+        return String(format: "€%.2f", value)
     }
 
     func newAddress() {

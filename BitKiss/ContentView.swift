@@ -1,218 +1,198 @@
 import SwiftUI
 
+/// The home screen: balance, three buttons, recent activity. Nothing else.
+/// Everything about the node lives behind the gear (AdvancedView).
 struct ContentView: View {
-    /// Shared with MyApp, which also uses it to pay invoices other apps send in.
     let manager: NodeManager
-    @State private var copied = ""
-    @State private var connection = ""
-    @State private var channelSats = "50000"
-    @State private var giftSats = "10000"
-    @State private var invoiceSats = "1000"
-    @State private var payText = ""
-    @State private var showWords = false
-    @State private var showLog = false
-    @State private var nodeLog = ""
 
-    private let plum = Color(red: 0x1E/255, green: 0x12/255, blue: 0x30/255)
-    private let pink = Color(red: 0xFF/255, green: 0x5C/255, blue: 0x8A/255)
-    private let orange = Color(red: 0xF7/255, green: 0x93/255, blue: 0x1A/255)
+    @State private var showReceive = false
+    @State private var showSend = false
+    @State private var showScanner = false
+    @State private var showAdvanced = false
+    /// An invoice the scanner found, handed to the Send sheet.
+    @State private var scannedInvoice: ScannedInvoice? = nil
 
     var body: some View {
-        ZStack {
-            plum.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("BitKiss")
-                        .font(.system(size: 40, weight: .heavy, design: .rounded))
-                        .foregroundStyle(pink)
-
-                    Label(manager.status, systemImage: "bolt.fill")
-                        .foregroundStyle(orange)
-
-                    if manager.startFailed {
-                        Button("Retry") { Task { await manager.start() } }
-                            .buttonStyle(.borderedProminent).tint(pink)
-                            .disabled(manager.isBusy)
+        NavigationStack {
+            ZStack {
+                BK.plum.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 22) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(BK.orange)
+                            Text("BitKiss")
+                                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                                .foregroundStyle(BK.pink)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+                        balanceCard
+                        actionRow
+                        if !manager.message.isEmpty || manager.startFailed {
+                            statusLine
+                        }
+                        activityList
                     }
-
-                    if !manager.message.isEmpty {
-                        Text(manager.message)
-                            .font(.footnote)
-                            .foregroundStyle(orange)
-                    }
-
-                    card(title: "Balance") {
-                        Text("\(manager.onchainSats) sats on-chain")
-                        Text("\(manager.lightningSats) sats on Lightning")
-                    }
-
-                    card(title: "Node ID") {
-                        Text(manager.nodeId.isEmpty ? "..." : ReceiveCard.shorten(manager.nodeId, head: 12, tail: 8))
-                            .font(.system(.footnote, design: .monospaced))
-                        copyButton("Copy node ID", value: manager.nodeId)
-                    }
-
-                    card(title: "Recovery words") {
-                        if showWords {
-                            Text(manager.mnemonic)
-                                .font(.system(.footnote, design: .monospaced))
-                                .textSelection(.enabled)
-                            Text("Write these 12 words down and keep them private. They are the only way to get your sats back if you lose this phone.")
-                                .font(.footnote)
-                                .foregroundStyle(orange)
-                        }
-                        Button(showWords ? "Hide words" : "Show words") {
-                            showWords.toggle()
-                        }
-                        .buttonStyle(.bordered).tint(orange)
-                        .disabled(manager.mnemonic.isEmpty)
-                    }
-
-                    card(title: "Receive on-chain") {
-                        if !manager.address.isEmpty {
-                            ReceiveCard(value: manager.address,
-                                        caption: "Bitcoin address",
-                                        accent: orange)
-                        }
-                        Button(manager.address.isEmpty ? "New address" : "Another address") {
-                            manager.newAddress()
-                        }
-                        .buttonStyle(.borderedProminent).tint(pink)
-                    }
-
-                    card(title: "Channels") {
-                        if manager.channels.isEmpty {
-                            Text("No channels yet").foregroundStyle(.white.opacity(0.7))
-                        }
-                        ForEach(manager.channels) { ch in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(ch.capacitySats) sats with \(ch.peer)")
-                                Text(ch.isReady
-                                     ? "Ready. Send \(ch.canSendSats), receive \(ch.canReceiveSats)"
-                                     : "Waiting for blocks (\(ch.confirmations) so far)")
-                                    .font(.footnote)
-                                    .foregroundStyle(ch.isReady ? .green : orange)
-                                if let txid = ch.fundingTxid {
-                                    Text("Funding tx: \(ReceiveCard.shorten(txid, head: 10, tail: 8))")
-                                        .font(.system(.footnote, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.7))
-                                    copyButton("Copy funding tx id", value: txid)
-                                } else {
-                                    Text("No funding transaction yet (still negotiating with the peer)")
-                                        .font(.footnote)
-                                        .foregroundStyle(.white.opacity(0.7))
-                                }
-                            }
-                        }
-                    }
-
-                    card(title: "Open a channel") {
-                        if !manager.lastCloseReason.isEmpty {
-                            Text("Last channel closed: \(manager.lastCloseReason)")
-                                .font(.footnote)
-                                .foregroundStyle(orange)
-                                .textSelection(.enabled)
-                        }
-                        field("pubkey@host:port", text: $connection)
-                        field("Channel size (sats)", text: $channelSats, numbers: true)
-                        field("Gift to other side (sats)", text: $giftSats, numbers: true)
-                        Button("Open channel") {
-                            Task {
-                                await manager.openChannel(
-                                    connection: connection,
-                                    amountSats: UInt64(channelSats) ?? 0,
-                                    giftSats: UInt64(giftSats) ?? 0)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent).tint(pink)
-                        .disabled(manager.isBusy)
-                    }
-
-                    card(title: "Receive a BitKiss (Lightning)") {
-                        field("Amount (sats)", text: $invoiceSats, numbers: true)
-                        Button("Make invoice") {
-                            manager.createInvoice(amountSats: UInt64(invoiceSats) ?? 0)
-                        }
-                        .buttonStyle(.borderedProminent).tint(pink)
-                        if !manager.invoice.isEmpty {
-                            ReceiveCard(value: manager.invoice,
-                                        caption: "Lightning invoice for \(invoiceSats) sats",
-                                        accent: orange)
-                        }
-                    }
-
-                    card(title: "Send a BitKiss (pay invoice)") {
-                        field("lnbc...", text: $payText)
-                        HStack {
-                            Button("Paste") { payText = UIPasteboard.general.string ?? "" }
-                                .buttonStyle(.bordered).tint(orange)
-                            Button("Pay") { Task { await manager.payInvoice(payText) } }
-                                .buttonStyle(.borderedProminent).tint(pink)
-                        }
-                    }
-
-                    card(title: "Node log") {
-                        if showLog {
-                            ScrollView(.horizontal) {
-                                Text(nodeLog.isEmpty ? "No log yet." : nodeLog)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .textSelection(.enabled)
-                            }
-                            .frame(maxHeight: 260)
-                        }
-                        HStack {
-                            Button(showLog ? "Hide log" : "Show log") {
-                                nodeLog = manager.recentLog()
-                                showLog.toggle()
-                            }
-                            .buttonStyle(.bordered).tint(orange)
-                            if showLog {
-                                copyButton("Copy log", value: nodeLog)
-                            }
-                        }
-                    }
-
-                    Button("Refresh") { Task { await manager.refresh() } }
-                        .buttonStyle(.borderedProminent)
-                        .tint(orange)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 40)
                 }
-                .padding(24)
+                .refreshable { await manager.refresh() }
             }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showAdvanced = true } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundStyle(BK.muted)
+                    }
+                }
+            }
+            .toolbarBackground(BK.plum, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .foregroundStyle(.white)
         .task { await manager.start() }
-    }
-
-    private func copyButton(_ label: String, value: String) -> some View {
-        Button(copied == value ? "Copied" : label) {
-            UIPasteboard.general.string = value
-            copied = value
+        .sheet(isPresented: $showReceive) { ReceiveSheet(manager: manager) }
+        .sheet(isPresented: $showSend) { SendSheet(manager: manager, initialInvoice: nil) }
+        .sheet(item: $scannedInvoice) { inv in SendSheet(manager: manager, initialInvoice: inv.text) }
+        .fullScreenCover(isPresented: $showScanner) {
+            ScannerView { code in
+                showScanner = false
+                if let inv = SendSheet.invoice(in: code) {
+                    scannedInvoice = ScannedInvoice(text: inv)
+                } else {
+                    manager.message = "That code is not a Lightning invoice."
+                }
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(orange)
+        .sheet(isPresented: $showAdvanced) { AdvancedView(manager: manager) }
     }
 
-    private func field(_ placeholder: String, text: Binding<String>, numbers: Bool = false) -> some View {
-        TextField(placeholder, text: text)
-            .keyboardType(numbers ? .numberPad : .default)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(.system(.footnote, design: .monospaced))
-            .padding(10)
-            .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-    }
+    // MARK: - Pieces
 
-    private func card<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
+    private var balanceCard: some View {
+        VStack(spacing: 6) {
+            Text("BALANCE")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.7))
-            content()
+                .foregroundStyle(BK.muted)
+                .padding(.top, 6)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(satsText(manager.totalSats))
+                    .font(.system(size: 46, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("sats")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(BK.muted)
+            }
+            Text(manager.euros(for: manager.totalSats) ?? " ")
+                .font(.subheadline)
+                .foregroundStyle(BK.muted)
+            HStack(spacing: 14) {
+                Label("\(satsText(manager.lightningSats)) Lightning", systemImage: "bolt.fill")
+                Label("\(satsText(manager.onchainSats)) on-chain", systemImage: "link")
+            }
+            .font(.caption)
+            .foregroundStyle(BK.muted)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+        .background(BK.card, in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 12) {
+            actionButton("Receive", icon: "arrow.down.left") { showReceive = true }
+            Button { showScanner = true } label: {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(BK.plum)
+                    .frame(width: 60, height: 60)
+                    .background(BK.orange, in: Circle())
+            }
+            actionButton("Send", icon: "arrow.up.right") { showSend = true }
+        }
+    }
+
+    private func actionButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 14, weight: .bold))
+                Text(title).font(.system(size: 17, weight: .semibold, design: .rounded))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(BK.card, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusLine: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(manager.startFailed ? manager.status : manager.message)
+                .font(.footnote)
+                .foregroundStyle(BK.orange)
+            if manager.startFailed {
+                Button("Retry") { Task { await manager.start() } }
+                    .buttonStyle(.borderedProminent).tint(BK.pink)
+                    .disabled(manager.isBusy)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
     }
+
+    private var activityList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("RECENT ACTIVITY")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(BK.muted)
+            if manager.activity.isEmpty {
+                Text(manager.status.hasPrefix("Running") ? "No payments yet. Receive your first BitKiss." : "Starting your wallet...")
+                    .font(.subheadline)
+                    .foregroundStyle(BK.muted)
+                    .padding(.vertical, 10)
+            }
+            ForEach(manager.activity.prefix(20)) { item in
+                HStack(spacing: 12) {
+                    Image(systemName: item.incoming ? "arrow.down.left" : "arrow.up.right")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(item.failed ? BK.orange : (item.incoming ? BK.green : .white))
+                        .frame(width: 36, height: 36)
+                        .background(BK.card, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(label(for: item))
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(item.date, style: .relative)
+                            .font(.caption)
+                            .foregroundStyle(BK.muted)
+                    }
+                    Spacer()
+                    Text((item.incoming ? "+" : "-") + satsText(item.sats))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(item.failed ? BK.muted : (item.incoming ? BK.green : .white))
+                }
+                .padding(12)
+                .background(BK.card, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+    }
+
+    private func label(for item: ActivityItem) -> String {
+        if item.failed { return "Failed" }
+        let what = item.onchain ? "on-chain" : "Lightning"
+        let verb = item.incoming ? "Received" : "Sent"
+        return item.pending ? "\(verb) \(what) (pending)" : "\(verb) \(what)"
+    }
+}
+
+/// Wrapper so a scanned invoice can drive a sheet.
+struct ScannedInvoice: Identifiable {
+    let text: String
+    var id: String { text }
 }
 
 #Preview {

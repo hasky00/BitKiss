@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var showAdvanced = false
     /// An invoice the scanner found, handed to the Send sheet.
     @State private var scannedInvoice: ScannedInvoice? = nil
+    /// Hide amounts, for screenshots and shoulder-surfers. Remembered between launches.
+    @AppStorage("hideBalance") private var hideBalance = false
 
     var body: some View {
         NavigationStack {
@@ -43,9 +45,15 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdvanced = true } label: {
-                        Image(systemName: "gearshape.fill")
-                            .foregroundStyle(BK.muted)
+                    HStack(spacing: 14) {
+                        Button { hideBalance.toggle() } label: {
+                            Image(systemName: hideBalance ? "eye.slash.fill" : "eye.fill")
+                                .foregroundStyle(BK.muted)
+                        }
+                        Button { showAdvanced = true } label: {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundStyle(BK.muted)
+                        }
                     }
                 }
             }
@@ -79,7 +87,7 @@ struct ContentView: View {
                 .foregroundStyle(BK.muted)
                 .padding(.top, 6)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(satsText(manager.totalSats))
+                Text(amount(manager.totalSats))
                     .font(.system(size: 46, weight: .bold, design: .rounded))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
@@ -87,12 +95,12 @@ struct ContentView: View {
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundStyle(BK.muted)
             }
-            Text(manager.euros(for: manager.totalSats) ?? " ")
+            Text(hideBalance ? "••••" : (manager.euros(for: manager.totalSats) ?? " "))
                 .font(.subheadline)
                 .foregroundStyle(BK.muted)
             HStack(spacing: 14) {
-                Label("\(satsText(manager.lightningSats)) Lightning", systemImage: "bolt.fill")
-                Label("\(satsText(manager.onchainSats)) on-chain", systemImage: "link")
+                Label("\(amount(manager.lightningSats)) Lightning", systemImage: "bolt.fill")
+                Label("\(amount(manager.onchainSats)) on-chain", systemImage: "link")
             }
             .font(.caption)
             .foregroundStyle(BK.muted)
@@ -171,7 +179,7 @@ struct ContentView: View {
                             .foregroundStyle(BK.muted)
                     }
                     Spacer()
-                    Text((item.incoming ? "+" : "-") + satsText(item.sats))
+                    Text((item.incoming ? "+" : "-") + amount(item.sats))
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(item.failed ? BK.muted : (item.incoming ? BK.green : .white))
                 }
@@ -179,6 +187,11 @@ struct ContentView: View {
                 .background(BK.card, in: RoundedRectangle(cornerRadius: 16))
             }
         }
+    }
+
+    /// "395,316" or "••••••" when hidden.
+    private func amount(_ sats: UInt64) -> String {
+        hideBalance ? "••••••" : satsText(sats)
     }
 
     private func label(for item: ActivityItem) -> String {

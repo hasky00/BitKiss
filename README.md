@@ -50,6 +50,6 @@ back at the GitHub package.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+MIT. See [LICENSE](LICENSE). BitKiss is built on [LDK Node](https://github.com/lightningdevkit/ldk-node) (Apache 2.0 / MIT).
 
 Made with love by Hasky Labs, Copenhagen.

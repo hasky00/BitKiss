@@ -1,0 +1,177 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 09bce27..dc2c589 100755
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -67,6 +67,7 @@ log = { version = "0.4.22", default-features = false, features = ["std"]}
+ 
+ vss-client = { package = "vss-client-ng", version = "0.4" }
+ prost = { version = "0.11.6", default-features = false}
++async-trait = "0.1"
+ 
+ [target.'cfg(windows)'.dependencies]
+ winapi = { version = "0.3", features = ["winbase"] }
+diff --git a/bindings/ldk_node.udl b/bindings/ldk_node.udl
+index ff2469c..8834b7c 100644
+--- a/bindings/ldk_node.udl
++++ b/bindings/ldk_node.udl
+@@ -116,6 +116,8 @@ interface Builder {
+ 	Node build_with_vss_store_and_fixed_headers(string vss_url, string store_id, record<string, string> fixed_headers);
+ 	[Throws=BuildError]
+ 	Node build_with_vss_store_and_header_provider(string vss_url, string store_id, VssHeaderProvider header_provider);
++	[Throws=BuildError]
++	Node build_with_vss_store_and_sigs_auth(string vss_url, string store_id);
+ };
+ 
+ interface Node {
+diff --git a/src/builder.rs b/src/builder.rs
+index af6eeb5..f36cc9b 100644
+--- a/src/builder.rs
++++ b/src/builder.rs
+@@ -77,6 +77,8 @@ use crate::wallet::Wallet;
+ use crate::{Node, NodeMetrics};
+ 
+ const VSS_HARDENED_CHILD_INDEX: u32 = 877;
++/// Hardened child index for the key that authenticates to the VSS server (BitKiss patch).
++const VSS_AUTH_HARDENED_CHILD_INDEX: u32 = 878;
+ const VSS_LNURL_AUTH_HARDENED_CHILD_INDEX: u32 = 138;
+ const LSPS_HARDENED_CHILD_INDEX: u32 = 577;
+ const PERSISTER_MAX_PENDING_UPDATES: u64 = 100;
+@@ -689,6 +691,33 @@ impl NodeBuilder {
+ 		self.build_with_vss_store_and_header_provider(vss_url, store_id, header_provider)
+ 	}
+ 
++	/// Builds a [`Node`] instance with a [VSS] backend, authenticating every request with a
++	/// secp256k1 signature from a key derived from the node seed (BitKiss patch).
++	///
++	/// Matches `vss-server`'s default signature authorizer. No LNURL-auth server needed.
++	///
++	/// [VSS]: https://github.com/lightningdevkit/vss-server/blob/main/README.md
++	pub fn build_with_vss_store_and_sigs_auth(
++		&self, vss_url: String, store_id: String,
++	) -> Result<Node, BuildError> {
++		let logger = setup_logger(&self.log_writer_config, &self.config)?;
++		let seed_bytes = seed_bytes_from_config(
++			&self.config,
++			self.entropy_source_config.as_ref(),
++			Arc::clone(&logger),
++		)?;
++		let auth_xprv = derive_xprv(
++			Arc::new(self.config.clone()),
++			&seed_bytes,
++			VSS_AUTH_HARDENED_CHILD_INDEX,
++			Arc::clone(&logger),
++		)?;
++		let header_provider =
++			Arc::new(crate::io::vss_sigs_auth::SigsAuthProvider::new(auth_xprv.private_key));
++
++		self.build_with_vss_store_and_header_provider(vss_url, store_id, header_provider)
++	}
++
+ 	/// Builds a [`Node`] instance with a [VSS] backend and according to the options
+ 	/// previously configured.
+ 	///
+@@ -1111,6 +1140,18 @@ impl ArcedNodeBuilder {
+ 			.map(Arc::new)
+ 	}
+ 
++	/// Builds a [`Node`] instance with a [VSS] backend, authenticating with a seed-derived
++	/// secp256k1 signature (BitKiss patch).
++	pub fn build_with_vss_store_and_sigs_auth(
++		&self, vss_url: String, store_id: String,
++	) -> Result<Arc<Node>, BuildError> {
++		self.inner
++			.read()
++			.unwrap()
++			.build_with_vss_store_and_sigs_auth(vss_url, store_id)
++			.map(Arc::new)
++	}
++
+ 	/// Builds a [`Node`] instance with a [VSS] backend and according to the options
+ 	/// previously configured.
+ 	///
+diff --git a/src/io/mod.rs b/src/io/mod.rs
+index 38fba51..80af3ce 100644
+--- a/src/io/mod.rs
++++ b/src/io/mod.rs
+@@ -11,6 +11,7 @@ pub mod sqlite_store;
+ #[cfg(test)]
+ pub(crate) mod test_utils;
+ pub(crate) mod utils;
++pub(crate) mod vss_sigs_auth;
+ pub(crate) mod vss_store;
+ 
+ /// The event queue will be persisted under this key.
+diff --git a/src/io/vss_sigs_auth.rs b/src/io/vss_sigs_auth.rs
+new file mode 100644
+index 0000000..394c81c
+--- /dev/null
++++ b/src/io/vss_sigs_auth.rs
+@@ -0,0 +1,68 @@
++//! Signature-based VSS authentication (BitKiss patch).
++//!
++//! Ported from `vss-client` 0.6's `SigsAuthProvider`: every request carries an
++//! `Authorization` header proving knowledge of a secp256k1 key derived from the
++//! node seed. The server scopes storage by that public key, so a wallet restored
++//! from its 12 words lands on the same backup.
++
++use std::collections::HashMap;
++use std::fmt::Write as _;
++use std::io::Write as _;
++use std::time::SystemTime;
++
++use async_trait::async_trait;
++use bitcoin::hashes::sha256::Hash as Sha256;
++use bitcoin::hashes::Hash as _;
++use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, SignOnly};
++use vss_client::headers::{VssHeaderProvider, VssHeaderProviderError};
++
++/// Must match `vss-server`'s `auth-impls/src/signature.rs`.
++const SIGNING_CONSTANT: &[u8] = b"VSS Signature Authorizer Signing Salt Constant..................";
++
++fn build_token(secret_key: &SecretKey, secp_ctx: &Secp256k1<SignOnly>) -> String {
++	let pubkey = secret_key.public_key(secp_ctx);
++	let now = SystemTime::now()
++		.duration_since(SystemTime::UNIX_EPOCH)
++		.expect("System time must be at least Jan 1, 1970")
++		.as_secs();
++
++	let mut buffer = [0u8; 64 + 33 + 20];
++	let mut stream = &mut buffer[..];
++	stream.write_all(SIGNING_CONSTANT).unwrap();
++	stream.write_all(&pubkey.serialize()).unwrap();
++	write!(stream, "{now}").unwrap();
++	let bytes_remaining = stream.len();
++	let bytes_to_sign = &buffer[..buffer.len() - bytes_remaining];
++
++	let hash = Sha256::hash(bytes_to_sign);
++	let sig = secp_ctx.sign_ecdsa(&Message::from_digest(hash.to_byte_array()), secret_key);
++	let mut out = String::with_capacity((33 + 64 + 20) * 2);
++	write!(&mut out, "{pubkey:x}").unwrap();
++	for c in sig.serialize_compact() {
++		write!(&mut out, "{:02x}", c).unwrap();
++	}
++	write!(&mut out, "{now}").unwrap();
++	out
++}
++
++pub(crate) struct SigsAuthProvider {
++	key: SecretKey,
++	secp_ctx: Secp256k1<SignOnly>,
++}
++
++impl SigsAuthProvider {
++	pub(crate) fn new(key: SecretKey) -> Self {
++		SigsAuthProvider { key, secp_ctx: Secp256k1::signing_only() }
++	}
++}
++
++#[async_trait]
++impl VssHeaderProvider for SigsAuthProvider {
++	async fn get_headers(
++		&self, _request: &[u8],
++	) -> Result<HashMap<String, String>, VssHeaderProviderError> {
++		let mut headers = HashMap::new();
++		headers.insert("Authorization".to_owned(), build_token(&self.key, &self.secp_ctx));
++		Ok(headers)
++	}
++}

@@ -1,0 +1,7 @@
+vss.bitkiss.eu {
+	# Prometheus metrics are for us, not the internet.
+	@metrics path /metrics
+	respond @metrics 404
+
+	reverse_proxy vss-server:8080
+}

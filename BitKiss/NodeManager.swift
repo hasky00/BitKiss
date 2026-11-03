@@ -80,6 +80,11 @@ final class NodeManager {
     // Rapid Gossip Sync: a compressed snapshot of the Lightning network,
     // so the phone can find payment routes right away.
     private let rgsURL = "https://rapidsync.lightningdevkit.org/snapshot"
+    /// Encrypted channel-state backup (VSS). Everything LDK persists goes here,
+    /// encrypted on the phone with a key derived from the 12 words, so a reinstall
+    /// plus the words brings channels back, not only on-chain coins.
+    private let vssURL = "https://vss.bitkiss.eu/vss"
+    private let vssStoreId = "bitkiss"
 
     /// True while the last start attempt failed, so the UI can offer a retry.
     var startFailed = false
@@ -98,6 +103,8 @@ final class NodeManager {
                 let dir = try Self.storageDir()
                 let url = esploraURL
                 let rgs = rgsURL
+                let vss = vssURL
+                let storeId = vssStoreId
                 let words = try SeedStore.loadOrCreate()
                 mnemonic = words
                 let started = try await Task.detached { () throws -> Node in
@@ -121,7 +128,10 @@ final class NodeManager {
                         lightningWalletSyncIntervalSecs: 180,
                         feeRateCacheUpdateIntervalSecs: 1800))
                     builder.setChainSourceEsplora(serverUrl: url, config: sync)
-                    let node = try builder.build()
+                    // Every request to the backup server is signed with a key derived
+                    // from the seed (hardened child 878), so the server only ever
+                    // hands a wallet its own blobs. No account, no login.
+                    let node = try builder.buildWithVssStoreAndSigsAuth(vssUrl: vss, storeId: storeId)
                     try node.start()
                     return node
                 }.value
@@ -147,6 +157,7 @@ final class NodeManager {
         let text = "\(error.map { "\($0)" } ?? "unknown error")"
         if text.contains("FeerateEstimation") { return "the chain server was too slow. Check your connection and retry." }
         if text.contains("WalletOperation") || text.contains("Esplora") { return "could not reach the chain server. Retry in a moment." }
+        if text.contains("KVStoreSetup") || text.contains("Vss") { return "could not reach the backup server. Retry in a moment." }
         return text
     }
 

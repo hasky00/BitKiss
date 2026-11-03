@@ -45,7 +45,12 @@ struct ReceiveSheet: View {
 
     private var lightning: some View {
         VStack(spacing: 16) {
-            if canReceive == 0 {
+            if manager.channels.isEmpty {
+                Text("No Lightning channel yet, so nothing can arrive over Lightning. Use On-chain for now.")
+                    .font(.footnote)
+                    .foregroundStyle(BK.orange)
+                    .multilineTextAlignment(.center)
+            } else if canReceive == 0 {
                 Text("Your wallet can't receive over Lightning yet. It can once you've sent a few sats out, or use On-chain.")
                     .font(.footnote)
                     .foregroundStyle(BK.orange)

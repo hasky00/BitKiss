@@ -15,6 +15,13 @@ if [ ! -d "$SRC" ]; then
 fi
 cd "$SRC"
 
+# BitKiss patch: VSS backup with seed-derived signature auth
+# (adds Builder.buildWithVssStoreAndSigsAuth). Idempotent.
+PATCH="$(cd "$(dirname "$0")" && pwd)/ldk-node-vss-sigs-auth.patch"
+if ! grep -q build_with_vss_store_and_sigs_auth bindings/ldk_node.udl; then
+  git apply "$PATCH"
+fi
+
 echo "== 2/6 rust toolchain =="
 rustup target add aarch64-apple-ios
 

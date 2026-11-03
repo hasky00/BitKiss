@@ -1,0 +1,53 @@
+# BitKiss VSS (Versioned Storage Service) — encrypted channel-state backup for BitKiss wallets.
+# Lives in /root/vss on the server, next to (never inside) the relay setup.
+# Nothing here is reachable from the internet directly; Caddy proxies https://vss.bitkiss.eu to it.
+
+services:
+  vss-server:
+    build:
+      context: ./src          # git clone of lightningdevkit/vss-server
+      dockerfile: Dockerfile
+    container_name: vss-server
+    restart: unless-stopped
+    environment:
+      VSS_BIND_ADDRESS: 0.0.0.0:8080
+      VSS_PSQL_ADDRESS: vss-postgres:5432
+      VSS_PSQL_USERNAME: vss
+      VSS_PSQL_PASSWORD: ${VSS_PG_PASSWORD}
+      VSS_PSQL_DEFAULT_DB: vss
+      VSS_PSQL_VSS_DB: vss
+      VSS_LOG_LEVEL: info
+      VSS_MAX_REQUEST_BODY_SIZE: "8388608"   # 8 MiB is plenty for channel state
+    depends_on:
+      vss-postgres:
+        condition: service_healthy
+    networks:
+      - vss-internal
+      - caddy            # so the existing Caddy container can reach "vss-server:8080"
+
+  vss-postgres:
+    image: postgres:16-alpine
+    container_name: vss-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vss
+      POSTGRES_USER: vss
+      POSTGRES_PASSWORD: ${VSS_PG_PASSWORD}
+    volumes:
+      - vss-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vss -d vss"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - vss-internal
+
+volumes:
+  vss-postgres-data:
+
+networks:
+  vss-internal:
+  caddy:
+    external: true
+    name: ${CADDY_NETWORK}

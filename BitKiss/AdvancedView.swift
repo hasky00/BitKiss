@@ -12,6 +12,7 @@ struct AdvancedView: View {
     @State private var showWords = false
     @State private var showLog = false
     @State private var nodeLog = ""
+    @AppStorage("wordsBackedUp") private var wordsBackedUp = false
 
     private let plum = Color(red: 0x1E/255, green: 0x12/255, blue: 0x30/255)
     private let pink = Color(red: 0xFF/255, green: 0x5C/255, blue: 0x8A/255)
@@ -64,11 +65,21 @@ struct AdvancedView: View {
                                 .font(.footnote)
                                 .foregroundStyle(orange)
                         }
-                        Button(showWords ? "Hide words" : "Show words") {
-                            showWords.toggle()
+                        HStack {
+                            Button(showWords ? "Hide words" : "Show words") {
+                                showWords.toggle()
+                            }
+                            .buttonStyle(.bordered).tint(orange)
+                            .disabled(manager.mnemonic.isEmpty)
+                            if showWords && !wordsBackedUp {
+                                Button("I wrote them down") { wordsBackedUp = true }
+                                    .buttonStyle(.borderedProminent).tint(pink)
+                            }
                         }
-                        .buttonStyle(.bordered).tint(orange)
-                        .disabled(manager.mnemonic.isEmpty)
+                        if wordsBackedUp {
+                            Label("Backed up", systemImage: "checkmark.circle.fill")
+                                .font(.footnote).foregroundStyle(.green)
+                        }
                     }
 
                     card(title: "Receive on-chain") {

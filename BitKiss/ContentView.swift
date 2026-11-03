@@ -13,6 +13,10 @@ struct ContentView: View {
     @State private var scannedInvoice: ScannedInvoice? = nil
     /// Hide amounts, for screenshots and shoulder-surfers. Remembered between launches.
     @AppStorage("hideBalance") private var hideBalance = false
+    /// First run: show the welcome flow until the user has been through it.
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+    @AppStorage("wordsBackedUp") private var wordsBackedUp = false
+    @State private var showBackup = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +24,9 @@ struct ContentView: View {
                 BK.plum.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 22) {
+                        if hasSeenWelcome && !wordsBackedUp {
+                            backupBanner
+                        }
                         HStack(spacing: 8) {
                             Image(systemName: "bolt.fill")
                                 .font(.system(size: 20, weight: .bold))
@@ -76,6 +83,27 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showAdvanced) { AdvancedView(manager: manager) }
+        .fullScreenCover(isPresented: Binding(get: { !hasSeenWelcome }, set: { _ in })) {
+            WelcomeView(manager: manager) { hasSeenWelcome = true }
+        }
+        .sheet(isPresented: $showBackup) { AdvancedView(manager: manager) }
+    }
+
+    private var backupBanner: some View {
+        Button { showBackup = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text("Back up your wallet: write down your 12 recovery words.")
+                    .font(.footnote.weight(.semibold))
+                    .multilineTextAlignment(.leading)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption)
+            }
+            .foregroundStyle(BK.plum)
+            .padding(12)
+            .background(BK.orange, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Pieces

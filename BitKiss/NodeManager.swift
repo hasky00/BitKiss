@@ -85,6 +85,14 @@ final class NodeManager {
     /// plus the words brings channels back, not only on-chain coins.
     private let vssURL = "https://vss.bitkiss.eu/vss"
     private let vssStoreId = "bitkiss"
+    /// Megalith, the LSP that opens a channel to a new wallet out of its first
+    /// incoming payment (LSPS2 "just-in-time" channels). No account or token
+    /// needed. Fee: the larger of 1.4% and a few thousand sats, taken out of
+    /// that first payment. https://docs.megalithic.me
+    static let lspNodeId = "034066e29e402d9cf55af1ae1026cc5adf92eed1e0e421785442f53717ad1453b0"
+    static let lspAddress = "64.23.159.177:9735"
+    /// What we tell people to ask for at minimum, so the LSP fee leaves something.
+    static let minFirstPaymentSats: UInt64 = 10_000
 
     /// True while the last start attempt failed, so the UI can offer a retry.
     var startFailed = false
@@ -113,8 +121,10 @@ final class NodeManager {
                     // per anchor channel so it can always bump fees on a force close.
                     var config = defaultConfig()
                     config.network = .bitcoin
+                    // The LSP's channel must be acceptable with an empty on-chain
+                    // wallet, so no fee-bump reserve is demanded for it.
                     config.anchorChannelsConfig = AnchorChannelsConfig(
-                        trustedPeersNoReserve: [],
+                        trustedPeersNoReserve: [Self.lspNodeId],
                         perChannelReserveSats: 25_000)
                     let builder = Builder.fromConfig(config: config)
                     builder.setEntropyBip39Mnemonic(mnemonic: words, passphrase: nil)
@@ -128,6 +138,8 @@ final class NodeManager {
                         lightningWalletSyncIntervalSecs: 180,
                         feeRateCacheUpdateIntervalSecs: 1800))
                     builder.setChainSourceEsplora(serverUrl: url, config: sync)
+                    builder.setLiquiditySourceLsps2(
+                        nodeId: Self.lspNodeId, address: Self.lspAddress, token: "bitkiss")
                     // Every request to the backup server is signed with a key derived
                     // from the seed (hardened child 878), so the server only ever
                     // hands a wallet its own blobs. No account, no login.
@@ -176,6 +188,9 @@ final class NodeManager {
         lightningSats = balances.totalLightningBalanceSats
         activity = node.listPayments()
             .filter { $0.amountMsat != nil }
+            // An invoice nobody has paid yet is a wish, not activity. Failed
+            // sends stay: the user wants to see what did not go through.
+            .filter { !($0.direction == .inbound && $0.status == .pending) }
             .sorted { $0.latestUpdateTimestamp > $1.latestUpdateTimestamp }
             .prefix(50)
             .map { p in
@@ -261,17 +276,39 @@ final class NodeManager {
         await refresh()
     }
 
-    /// Makes a Lightning invoice so someone can pay BitKiss.
+    /// Sats the open channels can take in right now.
+    var canReceiveSats: UInt64 {
+        channels.filter(\.isReady).map(\.canReceiveSats).reduce(0, +)
+    }
+
+    /// True when the next invoice will go through the LSP, which opens (or
+    /// grows) a channel out of the payment and keeps its fee from it.
+    func needsJitChannel(for amountSats: UInt64) -> Bool {
+        amountSats > canReceiveSats
+    }
+
+    /// Makes a Lightning invoice so someone can pay BitKiss. When the channels
+    /// can't hold the amount, the invoice is routed through the LSP, which
+    /// opens a channel just in time out of the payment itself.
     func createInvoice(amountSats: UInt64) {
         guard let node else { return }
         do {
-            let inv = try node.bolt11Payment().receive(
-                amountMsat: amountSats * 1000,
-                description: .direct(description: "A BitKiss"),
-                expirySecs: 3600)
+            let inv: Bolt11Invoice
+            if needsJitChannel(for: amountSats) {
+                inv = try node.bolt11Payment().receiveViaJitChannel(
+                    amountMsat: amountSats * 1000,
+                    description: .direct(description: "A BitKiss"),
+                    expirySecs: 3600,
+                    maxLspFeeLimitMsat: nil)
+            } else {
+                inv = try node.bolt11Payment().receive(
+                    amountMsat: amountSats * 1000,
+                    description: .direct(description: "A BitKiss"),
+                    expirySecs: 3600)
+            }
             invoice = inv.description
         } catch {
-            message = "Could not make invoice: \(error)"
+            message = "Could not make invoice: \(Self.plain(error))"
         }
     }
 

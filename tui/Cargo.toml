@@ -1,0 +1,18 @@
+[package]
+name = "bitkiss"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "BitKiss for the terminal: a self-custody Lightning wallet"
+license = "MIT"
+
+[dependencies]
+ldk-node = "0.7.1"
+qrcode = { version = "0.14.1", default-features = false }
+ratatui = "0.30.2"
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+
+[profile.release]
+opt-level = 2
+strip = true

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BitKiss</title>
+<meta name="description" content="BitKiss is a self-custody Lightning wallet for iPhone. Your keys stay on your phone. Made by Hasky Labs, Copenhagen.">
+<meta property="og:title" content="BitKiss">
+<meta property="og:description" content="A self-custody Lightning wallet for iPhone. Your keys stay on your phone.">
+<meta property="og:image" content="https://bitkiss.eu/assets/icon.png">
+<meta property="og:url" content="https://bitkiss.eu/">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --plum:#1b1428; --plum-2:#241b35; --card:#2b233e;
+    --pink:#e4608a; --pink-soft:#f29ab6; --orange:#e89646;
+    --text:#f3eef8; --muted:#a79fb5; --line:rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--plum);color:var(--text);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  .display{font-family:"Bricolage Grotesque",Inter,sans-serif;font-weight:800;letter-spacing:-.025em;line-height:.98}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+
+  /* glow */
+  .glow{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0}
+  .glow::before{content:"";position:absolute;width:60vw;height:60vw;max-width:720px;max-height:720px;
+    left:-10vw;top:-18vw;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(228,96,138,.32),rgba(228,96,138,0));filter:blur(10px)}
+  .glow::after{content:"";position:absolute;width:40vw;height:40vw;max-width:460px;max-height:460px;
+    right:-8vw;top:28vw;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(232,150,70,.22),rgba(232,150,70,0));filter:blur(10px)}
+
+  nav{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  nav .logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px}
+  nav .logo img{width:32px;height:32px;border-radius:8px}
+  nav .links{display:flex;gap:18px;font-size:14px;color:var(--muted)}
+  nav .links a:hover{color:var(--text)}
+
+  .hero{position:relative;z-index:1;display:grid;grid-template-columns:1.1fr .9fr;gap:32px;align-items:center;padding:48px 0 24px}
+  .hero h1{font-size:clamp(46px,8.4vw,104px);margin:0 0 20px}
+  .hero h1 em{font-style:normal;color:var(--pink)}
+  .hero p{font-size:clamp(17px,2.2vw,21px);color:var(--muted);margin:0 0 30px;max-width:460px}
+  .cta{display:inline-flex;align-items:center;gap:10px;background:var(--pink);color:#1b1428;
+    font-weight:600;font-size:16px;padding:15px 24px;border-radius:999px;transition:transform .15s ease,filter .15s ease}
+  .cta:hover{transform:translateY(-1px);filter:brightness(1.06)}
+  .cta svg{width:18px;height:18px}
+  .trust{margin:18px 0 0;font-size:14px;color:var(--muted)}
+  .trust b{color:var(--text);font-weight:600}
+
+  .icon-wrap{display:flex;justify-content:center}
+  .icon-wrap img{width:min(320px,70vw);height:auto;border-radius:22%;
+    box-shadow:0 30px 80px rgba(228,96,138,.35),0 10px 30px rgba(0,0,0,.4);
+    transform:rotate(-6deg)}
+
+  /* screenshots */
+  .shots{position:relative;z-index:1;padding:56px 0 24px}
+  .shots .row{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:760px;margin:0 auto}
+  .shot{background:#0d0916;border-radius:34px;padding:10px;border:1px solid var(--line);
+    box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  .shot img{display:block;width:100%;height:auto;border-radius:26px}
+  .shot:first-child{transform:rotate(-2deg) translateY(10px)}
+  .shot:last-child{transform:rotate(2deg) translateY(-10px)}
+  .caption{text-align:center;color:var(--muted);font-size:15px;margin:34px auto 0;max-width:520px}
+
+  /* about */
+  .about{position:relative;z-index:1;padding:56px 0 8px;max-width:820px;margin:0 auto}
+  .about h2{font-size:clamp(30px,4.6vw,46px);margin:0 0 22px}
+  .about .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}
+  .about .cols p{margin:0;color:var(--muted);font-size:15.5px}
+  .about .cols b{display:block;color:var(--text);font-weight:600;margin-bottom:6px}
+  .about .soon{margin:34px 0 0;padding:16px 20px;border-radius:16px;background:rgba(228,96,138,.12);
+    border:1px solid rgba(228,96,138,.3);color:var(--text);font-weight:500}
+  @media (max-width:760px){ .about .cols{grid-template-columns:1fr;gap:18px} }
+
+  /* get */
+  .get{position:relative;z-index:1;padding:56px 0 8px;max-width:820px;margin:0 auto}
+  .get h2{font-size:clamp(30px,4.6vw,46px);margin:0 0 6px}
+  .get .lead{color:var(--muted);margin:0 0 22px}
+  .ways{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .way{display:flex;flex-direction:column;gap:8px;background:var(--card);border:1px solid var(--line);
+    border-radius:18px;padding:20px;transition:background .15s ease}
+  .way:hover{background:#332a48}
+  .way .k{font-weight:600;font-size:17px}
+  .way .d{color:var(--muted);font-size:14.5px;flex:1}
+  .way .t{font-size:12px;font-weight:600;color:var(--orange)}
+  @media (max-width:760px){ .ways{grid-template-columns:1fr} }
+
+  /* send sats */
+  .send{position:relative;z-index:1;padding:64px 0}
+  .send .box{display:grid;grid-template-columns:auto 1fr;gap:34px;align-items:center;
+    background:var(--card);border:1px solid var(--line);border-radius:28px;padding:30px}
+  .qr{background:#fff;border-radius:18px;padding:12px;width:236px;height:236px;display:flex}
+  .qr img{width:100%;height:100%}
+  .send h2{font-size:clamp(28px,4vw,40px);margin:0 0 10px}
+  .send p{color:var(--muted);margin:0 0 16px}
+  .addr{display:flex;align-items:center;gap:10px;background:var(--plum);border:1px solid var(--line);
+    border-radius:14px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;
+    word-break:break-all;color:var(--text)}
+  .addr button{flex:none;background:var(--orange);color:#1b1428;border:0;border-radius:999px;
+    font:inherit;font-family:Inter,sans-serif;font-weight:600;font-size:13px;padding:8px 14px;cursor:pointer}
+  .addr button:active{transform:scale(.97)}
+
+  footer{position:relative;z-index:1;border-top:1px solid var(--line);padding:30px 0 40px;color:var(--muted);font-size:13px}
+  footer .f{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;align-items:center}
+  footer a:hover{color:var(--text)}
+
+  @media (max-width:760px){
+    .hero{grid-template-columns:1fr;gap:10px;padding:28px 0 10px;text-align:left}
+    .icon-wrap{order:-1;justify-content:flex-start;margin:6px 0 10px}
+    .icon-wrap img{width:120px;transform:rotate(-6deg)}
+    .shots .row{grid-template-columns:1fr 1fr;gap:12px}
+    .shot{border-radius:22px;padding:6px}
+    .shot img{border-radius:17px}
+    .send .box{grid-template-columns:1fr;padding:22px}
+    .qr{width:200px;height:200px}
+    nav .links{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+
+  <nav>
+    <a class="logo" href="#"><img src="assets/icon.png" alt=""> BitKiss</a>
+    <div class="links">
+      <a href="https://github.com/hasky00/BitKiss" rel="me">GitHub</a>
+      <a href="https://njump.me/npub1xcjm6eh7rl47j28r8w0x6kygp2p8jtue6jmqw225807wgqv7u6yqrmes59" rel="me">Nostr</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div>
+      <h1 class="display">Send a <em>BitKiss.</em></h1>
+      <p>A self-custody Lightning wallet for iPhone. Your keys stay on your phone. Nobody in the middle.</p>
+      <a class="cta" href="#get">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+        Get BitKiss for iPhone
+      </a>
+      <p class="trust"><b>Bitcoin mainnet.</b> Open source. Made in Copenhagen.</p>
+    </div>
+    <div class="icon-wrap">
+      <img src="assets/icon.png" alt="BitKiss app icon: pink lips with an orange lightning bolt">
+    </div>
+  </section>
+
+  <section class="shots">
+    <div class="row">
+      <div class="shot"><img src="assets/pay.jpg" alt="Pay with BitKiss: 10 sats, Cancel or Pay"></div>
+      <div class="shot"><img src="assets/sent.jpg" alt="Sent: 10 sats, with a green check mark"></div>
+    </div>
+    <p class="caption">Tap a Lightning link anywhere on your phone and BitKiss opens to pay it. Two taps, done.</p>
+  </section>
+
+  <section class="about" id="about">
+    <h2 class="display">What BitKiss is</h2>
+    <div class="cols">
+      <p><b>A wallet that is really yours.</b> BitKiss creates 12 recovery words on your iPhone and keeps them there. Hasky Labs never sees them and cannot touch your sats.</p>
+      <p><b>Lightning, on your phone.</b> BitKiss runs its own Lightning node inside the app, so payments settle in seconds and go straight from you to the receiver.</p>
+      <p><b>Bitcoin and Lightning together.</b> Receive on-chain, send over Lightning, see both balances on one screen. Nothing else to set up, nothing to sign up for.</p>
+    </div>
+    <p class="soon">BitKiss runs on Bitcoin mainnet today. No app store required.</p>
+  </section>
+
+  <section class="get" id="get">
+    <h2 class="display">Get BitKiss</h2>
+    <p class="lead">No app store. Pick the way that suits you.</p>
+    <div class="ways">
+      <a class="way" href="https://github.com/hasky00/BitKiss#build-it-yourself">
+        <span class="k">Build it yourself</span>
+        <span class="d">Clone the code, run one script, install from Xcode. The most honest way to trust a wallet.</span>
+        <span class="t">Mac + iPhone, 20 min</span>
+      </a>
+      <a class="way" href="get/">
+        <span class="k">Install from this site</span>
+        <span class="d">Register your iPhone once, then install with a tap. Limited to 100 devices a year.</span>
+        <span class="t">Soon</span>
+      </a>
+      <a class="way" href="get/">
+        <span class="k">Download the .ipa</span>
+        <span class="d">For sideloaders with AltStore, Sideloadly or similar. Sign it with your own Apple ID.</span>
+        <span class="t">Soon</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="send" id="send">
+    <div class="box">
+      <div class="qr"><img src="assets/qr.svg" alt="QR code of the BitKiss bitcoin address"></div>
+      <div>
+        <h2 class="display">Send sats to BitKiss</h2>
+        <p>Scan with any bitcoin wallet. Every sat goes into building the app.</p>
+        <div class="addr">
+          <span id="addr">bc1q3ackchys477vqvpu8uy27hpv20a0c26kc7jc2f</span>
+          <button type="button" onclick="copyAddr(this)">Copy</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="f">
+      <span>&copy; 2026 Hasky Labs, Copenhagen. All rights reserved.</span>
+      <span>Made with &#10084;&#65039; by Hasky Labs, Copenhagen.</span>
+    </div>
+  </footer>
+
+</div>
+<script>
+function copyAddr(btn){
+  var t=document.getElementById('addr').textContent;
+  try{ navigator.clipboard.writeText(t).then(function(){btn.textContent='Copied';setTimeout(function(){btn.textContent='Copy'},1500)}); }
+  catch(e){ /* older browsers: the address is selectable text */ }
+}
+</script>
+</body>
+</html>

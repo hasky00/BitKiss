@@ -160,8 +160,9 @@ struct AdvancedView: View {
                         HStack {
                             Button("Paste") { payText = UIPasteboard.general.string ?? "" }
                                 .buttonStyle(.bordered).tint(orange)
-                            Button("Pay") { Task { await manager.payInvoice(payText) } }
+                            Button(manager.isPaying ? "Paying…" : "Pay") { Task { await manager.payInvoice(payText) } }
                                 .buttonStyle(.borderedProminent).tint(pink)
+                                .disabled(manager.isPaying || payText.isEmpty)
                         }
                     }
 

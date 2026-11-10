@@ -72,6 +72,8 @@ final class NodeManager {
     private var eventTask: Task<Void, Never>?
     /// Final results of payments we sent, by payment id, filled in by the event loop.
     private var outcomes: [PaymentId: PaymentOutcome] = [:]
+    /// True while a payment is on its way, so a second tap cannot start another.
+    private(set) var isPaying = false
 
     // Blockstream's public Esplora server for mainnet.
     // Blockstream's public Esplora. (mempool.space looked faster but its API
@@ -317,8 +319,21 @@ final class NodeManager {
     @discardableResult
     func payInvoice(_ text: String) async -> Bool {
         guard let node else { return false }
+        // One payment at a time: a second tap while the first is still on its
+        // way would only be refused by LDK ("an invoice must not be paid twice").
+        guard !isPaying else { return false }
+        isPaying = true
         isBusy = true
-        defer { isBusy = false }
+        defer { isBusy = false; isPaying = false }
+
+        // A payment can only leave through a channel whose peer is connected.
+        // Right after the app comes back from the background it usually is not,
+        // so reconnect first instead of failing with "no route".
+        if !node.listChannels().isEmpty, !node.listChannels().contains(where: \.isUsable) {
+            message = "Connecting..."
+            await reconnectPeers()
+            await waitForUsableChannel()
+        }
 
         let paymentId: PaymentId
         do {
@@ -343,6 +358,40 @@ final class NodeManager {
         case nil:
             message = "Still trying to pay. Check your balance in a moment."
             return false
+        }
+    }
+
+    /// Reconnects to every channel peer that is not connected right now.
+    ///
+    /// iOS cuts the connection whenever the app goes to the background, and LDK
+    /// by itself only looks for lost peers about once a minute. Calling this when
+    /// the app comes to the front (and before paying) closes that gap.
+    func reconnectPeers() async {
+        guard let node else { return }
+        let lspId = Self.lspNodeId
+        let lspAddress = Self.lspAddress
+        await Task.detached {
+            let peers = node.listPeers()
+            for peer in peers where !peer.isConnected {
+                try? node.connect(nodeId: peer.nodeId, address: peer.address, persist: peer.isPersisted)
+            }
+            // The LSP holds our channel; make sure it is tried even if it was
+            // never saved as a peer.
+            let hasLspChannel = node.listChannels().contains { $0.counterpartyNodeId == lspId }
+            if hasLspChannel, !peers.contains(where: { $0.nodeId == lspId }) {
+                try? node.connect(nodeId: lspId, address: lspAddress, persist: true)
+            }
+        }.value
+    }
+
+    /// After a reconnect the two nodes still exchange a short handshake before
+    /// the channel can carry payments. Waits for that, up to `timeout` seconds.
+    private func waitForUsableChannel(timeout: TimeInterval = 10) async {
+        guard let node else { return }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if node.listChannels().contains(where: \.isUsable) { return }
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
 

@@ -1,0 +1,14 @@
+{
+  "names": {
+    "_": "3625bd66fe1febe928e33b9e6d58880a82792f99d4b60729543bfce4019ee688",
+    "bitkiss": "3625bd66fe1febe928e33b9e6d58880a82792f99d4b60729543bfce4019ee688"
+  },
+  "relays": {
+    "3625bd66fe1febe928e33b9e6d58880a82792f99d4b60729543bfce4019ee688": [
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+      "wss://nostr.land",
+      "wss://nostr.wine"
+    ]
+  }
+}

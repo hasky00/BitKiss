@@ -6,11 +6,17 @@ import SwiftUI
     @State private var manager = NodeManager()
     /// An invoice handed over by another app, waiting for the user's yes.
     @State private var pendingRequest: PaymentRequest? = nil
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView(manager: manager)
                 .onOpenURL { url in handle(url) }
+                // iOS drops the Lightning connection in the background; pick it
+                // up again the moment the app is back in front.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await manager.reconnectPeers() } }
+                }
                 .sheet(item: $pendingRequest) { request in
                     PayRequestSheet(request: request, manager: manager) {
                         pendingRequest = nil
